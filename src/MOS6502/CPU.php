@@ -602,6 +602,16 @@ class CPU
     }
 
     /**
+     * Checks if the CPU has pending cycles from a multi-cycle instruction
+     *
+     * @return bool True if there are pending cycles
+     */
+    public function hasPendingCycles(): bool
+    {
+        return $this->cycles > 0;
+    }
+
+    /**
      * Pushes a byte onto the stack
      *
      * Writes the value to the current stack location (0x0100 + SP) and
@@ -776,8 +786,18 @@ class CPU
         $this->pc++;
         $indirectAddress = ($high << 8) | $low;
 
-        // 65C02 fix: Page boundary bug is fixed - always read from consecutive addresses
-        return $this->bus->readWord($indirectAddress);
+        // NMOS 6502 bug: JMP ($xxFF) reads high byte from $xx00 instead of $xx+1)00
+        // This is the hardware bug that exists in the original 6502 (fixed in 65C02)
+        $targetLow = $this->bus->read($indirectAddress);
+
+        // If we're at a page boundary ($xxFF), wrap to same page instead of next page
+        if (($indirectAddress & 0xFF) === 0xFF) {
+            $targetHigh = $this->bus->read($indirectAddress & 0xFF00);
+        } else {
+            $targetHigh = $this->bus->read($indirectAddress + 1);
+        }
+
+        return ($targetHigh << 8) | $targetLow;
     }
 
     /**
