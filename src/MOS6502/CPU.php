@@ -992,4 +992,79 @@ class CPU
     {
         return $this->monitor !== null;
     }
+
+    /**
+     * Prepares the CPU for serialization
+     *
+     * The instructionHandlers array contains closures which cannot be serialized.
+     * We also exclude instruction handler objects as they contain circular references
+     * back to the CPU. Both are reconstructed in __wakeup().
+     *
+     * @return array<string> List of properties to serialize
+     */
+    public function __sleep(): array
+    {
+        // Return all properties except instructionHandlers, handler objects,
+        // and instructionRegister (which will be reconstructed in __wakeup())
+        return [
+            'pc',
+            'sp',
+            'accumulator',
+            'registerX',
+            'registerY',
+            'cycles',
+            'halted',
+            'pcTrace',
+            'nmiPending',
+            'irqPending',
+            'resetPending',
+            'nmiLastState',
+            'running',
+            'autoTickBus',
+            'bus',
+            'monitor',
+            'status',
+        ];
+    }
+
+    /**
+     * Restores the CPU after unserialization
+     *
+     * Reconstructs the instructionHandlers array and instruction handler objects
+     * which were excluded from serialization.
+     */
+    public function __wakeup(): void
+    {
+        // Use reflection to set readonly properties after unserialization
+        $reflection = new \ReflectionClass($this);
+
+        // Reconstruct instructionRegister
+        $instructionRegisterProperty = $reflection->getProperty('instructionRegister');
+        $instructionRegisterProperty->setAccessible(true);
+        $instructionRegisterProperty->setValue($this, new InstructionRegister());
+
+        // Reconstruct all handler objects using reflection
+        $handlers = [
+            'interpreter' => new InstructionInterpreter($this),
+            'loadStoreHandler' => new LoadStore($this),
+            'transferHandler' => new Transfer($this),
+            'arithmeticHandler' => new Arithmetic($this),
+            'logicHandler' => new Logic($this),
+            'shiftRotateHandler' => new ShiftRotate($this),
+            'incDecHandler' => new IncDec($this),
+            'flowControlHandler' => new FlowControl($this),
+            'stackHandler' => new Stack($this),
+            'flagsHandler' => new Flags($this),
+            'illegalOpcodesHandler' => new IllegalOpcodes($this),
+        ];
+
+        foreach ($handlers as $propertyName => $handler) {
+            $property = $reflection->getProperty($propertyName);
+            $property->setAccessible(true);
+            $property->setValue($this, $handler);
+        }
+
+        // Reconstruct instruction handlers array
+        $this->initializeInstructionHandlers();
+    }
 }
